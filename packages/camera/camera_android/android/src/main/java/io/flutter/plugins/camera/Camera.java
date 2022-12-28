@@ -53,6 +53,7 @@ import io.flutter.plugins.camera.features.exposureoffset.ExposureOffsetFeature;
 import io.flutter.plugins.camera.features.exposurepoint.ExposurePointFeature;
 import io.flutter.plugins.camera.features.flash.FlashFeature;
 import io.flutter.plugins.camera.features.flash.FlashMode;
+import io.flutter.plugins.camera.features.flash.FrontFlashOverlay;
 import io.flutter.plugins.camera.features.focuspoint.FocusPointFeature;
 import io.flutter.plugins.camera.features.resolution.ResolutionFeature;
 import io.flutter.plugins.camera.features.resolution.ResolutionPreset;
@@ -154,6 +155,8 @@ class Camera
 
   private MethodChannel.Result flutterResult;
 
+  private final FrontFlashOverlay frontFlashOverlay;
+
   /** A CameraDeviceWrapper implementation that forwards calls to a CameraDevice. */
   private class DefaultCameraDeviceWrapper implements CameraDeviceWrapper {
     private final CameraDevice cameraDevice;
@@ -219,7 +222,7 @@ class Camera
     captureTimeouts = new CaptureTimeoutsWrapper(3000, 3000);
     captureProps = new CameraCaptureProperties();
     cameraCaptureCallback = CameraCaptureCallback.create(this, captureTimeouts, captureProps);
-
+    frontFlashOverlay = new FrontFlashOverlay(activity);
     startBackgroundThread();
   }
 
@@ -544,6 +547,21 @@ class Camera
       return;
     }
 
+    final FlashMode flashMode = cameraFeatures.getFlash().getValue();
+    boolean isFrontFacing = cameraProperties.getLensFacing() == CameraMetadata.LENS_FACING_FRONT;
+    if (isFrontFacing && flashMode != FlashMode.off) {
+      frontFlashOverlay.setVisibility(true);
+      new Handler(Looper.getMainLooper()).postDelayed(() -> {
+        if (cameraDevice != null) { // make sure camera wasn't released in the meantime
+          takePictureNow(result);
+        }
+      }, 800);
+      return;
+    }
+    takePictureNow(result);
+  }
+
+  public void takePictureNow(@NonNull final Result result) {
     flutterResult = result;
 
     // Create temporary file.
@@ -650,6 +668,7 @@ class Camera
               @NonNull CaptureRequest request,
               @NonNull TotalCaptureResult result) {
             unlockAutoFocus();
+            frontFlashOverlay.setVisibility(false);
           }
         };
 
@@ -1196,6 +1215,8 @@ class Camera
 
   public void close() {
     Log.i(TAG, "close");
+
+    frontFlashOverlay.setVisibility(false);
 
     if (cameraDevice != null) {
       cameraDevice.close();
